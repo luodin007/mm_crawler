@@ -3,38 +3,101 @@
 #blog:www.nwber.com
 #E-mail: luoding@nwber.com
 
-import os  
-import urllib  
-import urllib2  
-import urlparse 
+from threading import Thread
+import urllib 
+import urllib2 
+from Queue import Queue  
+from BeautifulSoup import * 
+import cookielib
+import StringIO
+import gzip
+import hashlib
+import os
+from PIL import Image
 import time
 import random
-import hashlib
-import argparse
-from BeautifulSoup import * 
-from Queue import Queue  
-from threading import Thread  
 
-img_queue = Queue()  #储存图片地址的队列
-version = 0.1
+pass_url = set()
+pass_img = set()
+pass_hash = set()
 
-class URLLister:
-    """
-    爬虫扫描程序，用于获取和处理页面中的图片和链接，图片存入全局队列中等待下载
-    @web_url 目标网址，格式 http://www.baidu.com/
-    @timeout 超时设置，推荐为10
-    @depth 搜索递归深度，太大将造成扫描时间过长
-    """
-    def __init__(self, web_url, timeout, depth):
-        self.web_url = web_url  
-        self.timeout = timeout
-        self.depth = depth
-        self.passUrls = set()  
+url_queue = Queue()
+img_queue = Queue()
+
+class ImageHash:
+    def __init__(self,hash_size = 8):
+        self.hash_size = hash_size
+        
+    def image_hash(self, path):
+        im = Image.open(path)
+        im= im.resize((self.hash_size, self.hash_size), Image.ANTIALIAS).convert('L')
+        avg = reduce(lambda x, y: x + y, im.getdata()) / (self.hash_size*self.hash_size)
+        difference = map(lambda i: 0 if i < avg else 1, im.getdata())
+    #     for col in range(self.hash_size-1):
+    #         print h[col:col+self.hash_size]
+        decimal_value = 0
+        hex_string = []
+        for index, value in enumerate(difference):
+            if value:
+                decimal_value += 2**(index % 8)
+            if (index % 8) == 7:
+                hex_string.append(hex(decimal_value)[2:].rjust(2, '0'))
+                decimal_value = 0
+     
+        return ''.join(hex_string)
     
-    def start(self):
-        """ 启动爬虫扫描程序 """
-        self.get_page_html(self.web_url, self.depth)
-           
+    def hamming_distance(self, s1, s2):
+        #Return the Hamming distance between equal-length sequences
+        if len(s1) != len(s2):
+            raise ValueError("Undefined for sequences of unequal length")
+        return sum(ch1 != ch2 for ch1, ch2 in zip(s1, s2))
+
+class URLScanner(Thread):
+    def __init__(self, threadID, timeout,web_url):
+        Thread.__init__(self)
+        self.threadID = threadID
+        self.timeout = timeout
+        self.web_url = web_url
+    
+    
+    def run(self):
+        while True:
+            pre_url = url_queue.get()
+            self.process(pre_url)
+            
+    def is_exit(self, pre_url):
+        if pre_url in pass_url:
+            return True
+        else:
+            pass_url.add(pre_url)
+            return False
+    
+    def process(self, pre_url):
+        try:
+            request = urllib2.Request(pre_url)
+            request.add_header('User-Agent', '"Mozilla/4.0 (compatible; MSIE 5.0; Windows NT; DigExt)')
+            request.add_header('Accept-encoding', 'gzip')
+            opener = urllib2.build_opener()
+            html = opener.open(request, timeout=self.timeout)
+            isGzip = html.headers.get('Content-Encoding')
+            if isGzip :
+                compresseddata = html.read()
+                compressedstream = StringIO.StringIO(compresseddata)
+                gzipper = gzip.GzipFile(fileobj=compressedstream)
+                html_doc = gzipper.read()
+            else:
+                html_doc = html.read()
+            #html_doc = urllib2.urlopen(request, timeout=self.timeout).read() 
+            url_list = self.choice_href(html_doc)
+            for url in url_list:
+                if not self.is_exit( url):
+                    print 'get url   :  '+url
+                    pass_url.add(url)
+                    url_queue.put(url)
+        except:
+            pass
+            
+        
     def choice_href(self, html_doc):
         """ 寻找当前页面所有可用链接，返回可用且在目标网站的链接数组 """
         page_urls = []
@@ -48,12 +111,60 @@ class URLLister:
                             page_urls.append(href_str) 
                     else:
                         continue
-                elif href_str.startswith('/'): #对缩写链接进行补全
-                    if self.web_url + href_str not in page_urls:
-                        page_urls.append(self.web_url + href_str)
-             
-        return page_urls
                     
+                else: #对缩写链接进行补全
+                    if self.web_url + href_str not in page_urls:
+                        page_urls.append(self.web_url +'/'+ href_str)
+             
+        return page_urls     
+
+
+class IMGScanner(Thread):
+    def __init__(self, threadID, timeout, web_url):
+        Thread.__init__(self)
+        self.threadID = threadID
+        self.timeout = timeout
+        self.web_url = web_url
+    
+    def run(self):
+        while True:
+            pre_url = url_queue.get()
+            self.process(pre_url)
+            
+    def is_exit(self, pre_url):
+        if pre_url in pass_img:
+            return True
+        else:
+            pass_img.add(pre_url)
+            return False
+    
+    def process(self, pre_url):
+        try:
+            request = urllib2.Request(pre_url)
+            request.add_header('User-Agent', '"Mozilla/4.0 (compatible; MSIE 5.0; Windows NT; DigExt)')
+            request.add_header('Accept-encoding', 'gzip')
+            opener = urllib2.build_opener()
+            html = opener.open(request, timeout=self.timeout)
+            isGzip = html.headers.get('Content-Encoding')
+            if isGzip :
+                compresseddata = html.read()
+                compressedstream = StringIO.StringIO(compresseddata)
+                gzipper = gzip.GzipFile(fileobj=compressedstream)
+                html_doc = gzipper.read()
+            else:
+                html_doc = html.read()
+            #html_doc = urllib2.urlopen(request, timeout=self.timeout).read() 
+            
+            img_list = self.choice_img(html_doc)
+            for img in img_list:
+                if not self.is_exit(img):
+                    print 'get img   :  '+img
+                    pass_img.add(img)
+                    img_queue.put(img)
+        except:
+            pass
+            
+        
     def choice_img(self, html_doc):
         """ 寻找当前页面所有图片，返回为图片的完整地址 """
         page_imgs = []
@@ -65,51 +176,16 @@ class URLLister:
                     if img_str.find( self.web_url):
                         if img_str not in page_imgs:
                             page_imgs.append(img_str)
-                            print "get image: "+img_str
+                            
                     else:
                         continue
-                elif img_str.startswith('/'):
+                else:
                     if self.web_url+img_str not in page_imgs:
                         page_imgs.append(self.web_url+img_str)
                         
         return page_imgs
-    
-    def get_url_of_page(self, url, is_img=False):
-        """ 
-        获取一个页面上的所有链接。 
-        is_img:如果为true，则获取的是页面上的所有图片的链接  
-        """
-        try:  
-            html_doc = urllib2.urlopen(url, timeout=self.timeout).read()  
-            if is_img:
-                return self.choice_img(html_doc)
 
-            else:
-                return self.choice_href(html_doc)
-            
-        except urllib2.URLError, e:  
-            print e
-            return 
-    
-    def get_page_html(self, begin_url, depth):
-        """ 递归处理页面，并将图片链接存入全局队列"""
-        page_urls = []
-        page_imgs = []
-        if depth <= 0:  
-            return 
-        self.passUrls.add(begin_url) #忽略的链接
-        
-        page_urls = self.get_url_of_page(begin_url)  
-        if page_urls:  
-            for url in page_urls:  
-                if not url in self.passUrls:
-                    self.get_page_html(url, depth - 1)
-    
-        for img in self.get_url_of_page(begin_url,True):
-            img_queue.put(img)  
-        
-
-class DownloadCrawler(Thread):
+class IMGDownloader(Thread):
     """
     下载爬虫，支持多线程下载
     @threadID 当前线程编号
@@ -119,73 +195,79 @@ class DownloadCrawler(Thread):
         Thread.__init__(self)
         self.threadID = threadID
         self.save_path = save_path
+        self.ext_list = ['']
+        self.ImageHash = ImageHash()
 
     def run(self): 
         while True:  
             img_url = img_queue.get()
-            print 'downloading: '+img_url  
-            filename = hashlib.md5(str(random.random() + time.time())).hexdigest() #生成随机文件名
-            self.download(filename, img_url)
+            print 'downloading: '+img_url 
+            if self.get_ext(img_url):
+                img_ext = self.get_ext(img_url)
+                filename = hashlib.md5(str(random.random() + time.time())).hexdigest() #生成随机文件名
+                self.download(img_ext, filename,img_url)
 
-    def download(self, filename, img_url):
+    def download(self, img_ext, filename, img_url):
         urlopen = urllib.URLopener()  
         try:  
             fp = urlopen.open(img_url)  
             data = fp.read()  
             fp.close()  
-            f = open(self.save_path + "/" + filename, 'w+b') 
+            f = open(self.save_path + "/" + filename + '.' + img_ext, 'w+b') 
             f.write(data) 
             f.close() 
-            if os.path.getsize(self.save_path + "/" + filename) <10000: #小于10k的图片会被删除
-                os.remove( self.save_path + "/" + filename )
-        except IOError:  
-            print "download error!" + filename
-
-def my_crawler():
-    parser = argparse.ArgumentParser(description='一个简易的多线程图片爬虫')
-    parser.add_argument("-v", "--version", action="store_true", help="当前版本号")
-    parser.add_argument("-t","--thread",type=int, help="爬虫下载线程数，默认为2")
-    parser.add_argument("-s","--save_path",help="下载图片保存位置，默认为当前目录" )
-    parser.add_argument("-u","--url",help="爬取的目标网址，格式http://www.baidu.com")
-    parser.add_argument("-d","--deep",help="爬虫搜索递归深度，太大将造成扫描时间过长，默认为2")
-    parser.add_argument("-o","--timeout",help="网络连接超时设置，默认为10")
-    url = "http://www.22mm.cc"
-    save_path = './'
-    threadNum = 3
-    deep = 1
-    timeout = 20
-    args = parser.parse_args()
-    if args.version:
-        print "当前版本号: "+version
-    elif args.save_path:
-        save_path = args.outputPath
-    elif args.thread:
-        threadNum =args.thread
-    elif args.url:
-        url =args.url
-    elif args.deep:
-        deep =args.deep
-    elif args.timeout:
-        timeout =args.timeout
-
-    if not os.path.exists(save_path):
-        os.mkdir(save_path)
-
-    test = URLLister(url,timeout,deep)
-    test.start()
-    threads = []
-    
-    for i in range(threadNum):  
-            thread = DownloadCrawler(i, save_path)
-            thread.setDaemon(True) 
-            thread.start() 
-            threads.append(thread)
             
-    for thread in threads:
-        thread.join()
-    img_queue.join() 
+            if os.path.getsize(self.save_path + "/" + filename+ '.' + img_ext) <10: #小于10k的图片会被删除
+                os.remove( self.save_path + "/" + filename + '.' + img_ext )
+                print "delete img " + filename+ '.' + img_ext
+            
+            img_hash = self.ImageHash.image_hash(self.save_path + "/" + filename+ '.' + img_ext)
+            
+            if self.is_exit(img_hash) :
+                os.remove( self.save_path + "/" + filename + '.' + img_ext)
+                print "delete img "+ filename + '.' +  img_ext
+            os.rename(self.save_path + "/" + filename+ '.' + img_ext, self.save_path + "/" + img_hash + '.' + img_ext)
+                
+        except IOError:  
+            pass
+            
+        
+    def is_exit(self, img_hash):
+        if img_hash in pass_hash:
+            return True
+        else:
+            pass_hash.add(img_hash)
+            return False
+        
+    def get_ext(self, url):
+        if url[-3:] in ('jpg','png','gif','BMP'):
+            return url[-3:]
+        else:
+            return False
 
-if __name__=="__main__":
-    my_crawler()
-    print "end"
+url_queue.put('http://www.amazon.cn/')
 
+threads = []
+    
+for i in range(100):  
+        thread = URLScanner(i,2,'http://www.amazon.cn/')
+        thread.setDaemon(True) 
+        thread.start() 
+        threads.append(thread)
+    
+for i in range(100):  
+        thread = IMGScanner(i,2,'http://www.amazon.cn/')
+        thread.setDaemon(True) 
+        thread.start() 
+        threads.append(thread)
+    
+for i in range(100):  
+        thread = IMGDownloader(i,'download/')
+        thread.setDaemon(True) 
+        thread.start() 
+        threads.append(thread)
+        
+for thread in threads:
+    thread.join()
+        
+    
