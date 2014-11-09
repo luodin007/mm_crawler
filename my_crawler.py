@@ -261,7 +261,7 @@ class IMGDownloader(Thread):
 
 
     
-def my_crawler(url = "http://www.amazon.cn/", save_path = './download/', url_thread = 40, img_thread = 40, download_thread = 100, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
+def my_crawler(url = "http://www.22mm.cc/", save_path = './download/', url_thread = 1, img_thread = 1, download_thread = 10, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
     parser = argparse.ArgumentParser(description='一个简易的多线程图片爬虫')
     parser.add_argument("-v", "--version", action="store_true", help="当前版本号")
     parser.add_argument("-ut","--url_thread",type=int, help="扫描链接线程数，默认为1")
