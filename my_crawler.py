@@ -22,7 +22,7 @@ from crawlerMongo import PyConnect
 import BaseCrawler
 
 pre_url_queue = Queue()  #等待分析的URL链接
-post_url_queue = Queue()  #已经分析的URL链接
+post_url_queue = Queue()  #分析的URL链接
 img_queue = Queue()  #等待下载的图片链接
 
 IS_CONTINUE = True   #控制所有线程，用于下载图片数限制
@@ -86,7 +86,7 @@ class URLScanner(BaseCrawler.BaseCrawler):
                     post_url_queue.put(url)
                     self.put_to_queue(url)
         except:
-            print 'process url'
+            print 'process url'+pre_url
         
     def choice_href(self, pre_url,html_doc):
         """ 寻找当前页面所有可用链接，返回可用且在目标网站的链接数组 """
@@ -152,7 +152,7 @@ class IMGScanner(BaseCrawler.BaseCrawler):
                     print 'get '+type+' : '+ url
                     self.put_to_queue(url)
         except:
-            print 'process img'
+            print 'process img'+pre_url
     
     def choice_img(self, pre_url, html_doc):
         """ 寻找当前页面所有图片，返回为图片的完整地址 """
@@ -226,6 +226,7 @@ class IMGDownloader(Thread):
             if os.path.getsize(self.save_path + "/" + filename+ '.' + img_ext) < self.file_size: #小于10k的图片会被删除
                 os.remove( self.save_path + "/" + filename + '.' + img_ext )
                 print "delete img " + filename+ '.' + img_ext
+                return 0
             
             img_hash = self.ImageHash.image_hash(self.save_path + "/" + filename+ '.' + img_ext)
             
@@ -261,7 +262,7 @@ class IMGDownloader(Thread):
 
 
     
-def my_crawler(url = "http://www.22mm.cc/", save_path = './download/', url_thread = 1, img_thread = 1, download_thread = 10, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
+def my_crawler(url = "http://www.meizitu.com/", save_path = './download/', url_thread = 2, img_thread = 4, download_thread = 8, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
     parser = argparse.ArgumentParser(description='一个简易的多线程图片爬虫')
     parser.add_argument("-v", "--version", action="store_true", help="当前版本号")
     parser.add_argument("-ut","--url_thread",type=int, help="扫描链接线程数，默认为1")
