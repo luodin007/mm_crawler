@@ -260,9 +260,59 @@ class IMGDownloader(Thread):
             self.connect.insert({ table :pre_url })
             return False
 
-
+class URLScannerManager(Thread):
+    def __init__(self, thread_num, timeout, web_url):
+        Thread.__init__(self)
+        self.thread_num = thread_num
+        self.timeout = timeout
+        self.url = web_url
+        self.threads = []
+        
+    def run(self):
+        for i in range(self.thread_num):  
+            thread = URLScanner(i, self.timeout, self.url)
+            thread.setDaemon(True) 
+            thread.start() 
+            self.threads.append(thread)
+        for thread in self.threads:
+            thread.join()
     
-def my_crawler(url = "http://www.22mm.cc/", save_path = './download/', url_thread = 2, img_thread = 4, download_thread = 8, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
+class IMGScannerManager(Thread):
+    def __init__(self, thread_num, timeout, web_url):
+        Thread.__init__(self)
+        self.thread_num = thread_num
+        self.timeout = timeout
+        self.url = web_url
+        self.threads = []
+        
+    def run(self):
+        for i in range(self.thread_num):  
+            thread = IMGScanner(i, self.timeout, self.url)
+            thread.setDaemon(True) 
+            thread.start() 
+            self.threads.append(thread)
+        for thread in self.threads:
+            thread.join()
+
+class IMGDownloaderManager(Thread):
+    def __init__(self, thread_num, save_path, file_size):
+        Thread.__init__(self)
+        self.thread_num = thread_num
+        self.save_path = save_path
+        self.file_size = file_size
+        self.threads = []
+        
+    def run(self):
+        for i in range(self.thread_num):  
+            thread = IMGDownloader(i, self.save_path,self.file_size)
+            thread.setDaemon(True) 
+            thread.start() 
+            self.threads.append(thread)
+        for thread in self.threads:
+            thread.join()       
+
+
+def my_crawler(url = "http://www.meizitu.com/", save_path = './download/', url_thread = 2, img_thread = 4, download_thread = 8, file_num_limit= 0, frequency=0.1, timeout = 5, file_size =10000):
     parser = argparse.ArgumentParser(description='一个简易的多线程图片爬虫')
     parser.add_argument("-v", "--version", action="store_true", help="当前版本号")
     parser.add_argument("-ut","--url_thread",type=int, help="扫描链接线程数，默认为1")
@@ -302,20 +352,22 @@ def my_crawler(url = "http://www.22mm.cc/", save_path = './download/', url_threa
 
     threads = []
         
-    for i in range(url_thread):  
-        thread = URLScanner(i, timeout, url)
+    
+        
+    if url_thread != 0 : 
+        thread = URLScannerManager(url_thread, timeout, url)
+        thread.setDaemon(True) 
+        thread.start() 
+        threads.append(thread)
+    
+    if img_thread != 0 : 
+        thread = IMGScannerManager(img_thread, timeout, url)
         thread.setDaemon(True) 
         thread.start() 
         threads.append(thread)
         
-    for i in range(img_thread):  
-        thread = IMGScanner(i, timeout, url)
-        thread.setDaemon(True) 
-        thread.start() 
-        threads.append(thread)
-        
-    for i in range(download_thread):  
-        thread = IMGDownloader(i, save_path,file_size)
+    if download_thread != 0 : 
+        thread = IMGDownloaderManager(download_thread, save_path, file_size)
         thread.setDaemon(True) 
         thread.start() 
         threads.append(thread)
