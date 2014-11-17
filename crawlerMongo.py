@@ -63,6 +63,14 @@ class PyConnect(object):
         #update无返回值
         self.coll.update(data,{'$set':setdata})
 
+    def addToSet(self, data ,setdata):
+        if type(data) is not dict or type(setdata) is not dict:
+            print 'the type of update and data isn\'t dict'
+            exit(0)
+        #update无返回值
+        self.coll.update(data,{ $addToSet: setdata })
+
+
 if __name__ == '__main__':
     
     connect = PyConnect('localhost', 27017)
